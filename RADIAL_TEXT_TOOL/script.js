@@ -1,3 +1,7 @@
+// =====================
+// Radial Text Builder — WYSIWYG outlines export
+// =====================
+
 const el = {
   panel: document.getElementById('panel'),
   toggle: document.getElementById('togglePanel'),
@@ -56,14 +60,14 @@ const fontState = {
 };
 let fontCounter = 0;
 
-function extToMime(name='') {
+function extToMime(name = '') {
   const ext = name.toLowerCase().split('.').pop();
   switch (ext) {
-    case 'otf':  return 'font/otf';
-    case 'ttf':  return 'font/ttf';
+    case 'otf': return 'font/otf';
+    case 'ttf': return 'font/ttf';
     case 'woff': return 'font/woff';
-    case 'woff2':return 'font/woff2';
-    default:     return 'application/octet-stream';
+    case 'woff2': return 'font/woff2';
+    default: return 'application/octet-stream';
   }
 }
 function arrayBufferToBase64(buffer) {
@@ -112,13 +116,13 @@ if (el.fontDrop && el.fontFile) {
     const f = e.target.files && e.target.files[0];
     if (f) loadCustomFont(f);
   });
-  ['dragenter','dragover'].forEach(ev =>
+  ['dragenter', 'dragover'].forEach(ev =>
     el.fontDrop.addEventListener(ev, (e) => {
       e.preventDefault(); e.stopPropagation();
       el.fontDrop.classList.add('dragover');
     })
   );
-  ['dragleave','drop'].forEach(ev =>
+  ['dragleave', 'drop'].forEach(ev =>
     el.fontDrop.addEventListener(ev, (e) => {
       e.preventDefault(); e.stopPropagation();
       el.fontDrop.classList.remove('dragover');
@@ -147,18 +151,18 @@ function rebuild() {
   const words = parseWords(el.words.value);
   const n = words.length || 1;
 
-  const fontSize      = parseInt(el.fontSize.value, 10);
-  const radius        = parseInt(el.radius.value, 10);
-  const angleOffset   = parseInt(el.angle.value, 10);
+  const fontSize = parseInt(el.fontSize.value, 10);
+  const radius = parseInt(el.radius.value, 10);
+  const angleOffset = parseInt(el.angle.value, 10);
   const letterSpacing = parseFloat(el.letterSpacing.value);
-  const startPx       = parseInt(el.startPx.value, 10);
+  const startPx = parseInt(el.startPx.value, 10);
 
   // UI mirrors
   el.fontSizeOut.textContent = `${fontSize}px`;
-  el.radiusOut.textContent   = `${radius}px`;
-  el.angleOut.textContent    = `${angleOffset}°`;
-  el.lsOut.textContent       = `${letterSpacing}`;
-  el.startPxOut.textContent  = `${startPx} px`;
+  el.radiusOut.textContent = `${radius}px`;
+  el.angleOut.textContent = `${angleOffset}°`;
+  el.lsOut.textContent = `${letterSpacing}`;
+  el.startPxOut.textContent = `${startPx} px`;
 
   el.defs.innerHTML = '';
   el.labels.innerHTML = '';
@@ -168,7 +172,7 @@ function rebuild() {
 
     // Single, constant direction path (smooth at zero-crossing)
     const p0 = polarToCartesian(0, 0, -BIG, a);
-    const p1 = polarToCartesian(0, 0,  BIG, a);
+    const p1 = polarToCartesian(0, 0, BIG, a);
 
     const id = `spoke-${i}`;
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -185,7 +189,7 @@ function rebuild() {
       ? `'${fontState.family}', Helvetica, Arial, sans-serif`
       : 'Helvetica, Arial, sans-serif';
     text.setAttribute('font-family', familyStack);
-    text.setAttribute('letter-spacing', letterSpacing);
+    text.setAttribute('letter-spacing', `${letterSpacing}px`);
 
     const tp = document.createElementNS('http://www.w3.org/2000/svg', 'textPath');
     tp.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', `#${id}`);
@@ -200,6 +204,8 @@ function rebuild() {
   }
 }
 
+const PERSPECTIVE_PX = 1200;
+
 function updatePreviewRotation() {
   const x = parseInt(el.rotX.value, 10);
   const y = parseInt(el.rotY.value, 10);
@@ -208,7 +214,7 @@ function updatePreviewRotation() {
   el.rotYOut.textContent = `${y}°`;
   el.rotZOut.textContent = `${z}°`;
   el.stage.style.transform =
-    `perspective(1200px) rotateX(${x}deg) rotateY(${y}deg) rotateZ(${z}deg)`;
+    `perspective(${PERSPECTIVE_PX}px) rotateX(${x}deg) rotateY(${y}deg) rotateZ(${z}deg)`;
 }
 
 // Export SVG (embed font)
@@ -221,7 +227,7 @@ function downloadSVG() {
     const fmt = fontState.mime.split('/').pop();
     const style = document.createElement('style');
     style.textContent =
-`@font-face{
+      `@font-face{
   font-family:'${fontState.family}';
   src:url(data:${fontState.mime};base64,${fontState.dataB64}) format('${fmt}');
   font-weight:normal;font-style:normal;font-display:block;
@@ -236,10 +242,68 @@ function downloadSVG() {
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-// Export SVG (outlines) — Illustrator-safe
+// ---------- Helpers for SVG (outlines) export ----------
 function svgEl(name) { return document.createElementNS('http://www.w3.org/2000/svg', name); }
-function rad(deg){ return (deg * Math.PI) / 180; }
+function toRad(deg) { return (deg * Math.PI) / 180; }
 
+// 4x4 matrix helpers to bake CSS perspective + rotations (origin at center)
+function matMul(a, b) {
+  const r = Array(16).fill(0);
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      for (let k = 0; k < 4; k++) {
+        r[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j];
+      }
+    }
+  }
+  return r;
+}
+function matRotateX(ax) {
+  const c = Math.cos(ax), s = Math.sin(ax);
+  return [
+    1, 0, 0, 0,
+    0, c, -s, 0,
+    0, s, c, 0,
+    0, 0, 0, 1
+  ];
+}
+function matRotateY(ay) {
+  const c = Math.cos(ay), s = Math.sin(ay);
+  return [
+    c, 0, s, 0,
+    0, 1, 0, 0,
+    -s, 0, c, 0,
+    0, 0, 0, 1
+  ];
+}
+function matRotateZ(az) {
+  const c = Math.cos(az), s = Math.sin(az);
+  return [
+    c, -s, 0, 0,
+    s, c, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1
+  ];
+}
+function matPerspective(d) {
+  // CSS perspective(d) in px
+  return [
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, -1 / d, 1  // <-- m[14]
+  ];
+}
+function applyMat(x, y, z, m) {
+  const X = m[0] * x + m[1] * y + m[2] * z + m[3] * 1;
+  const Y = m[4] * x + m[5] * y + m[6] * z + m[7] * 1;
+  const Z = m[8] * x + m[9] * y + m[10] * z + m[11] * 1;
+  const W = m[12] * x + m[13] * y + m[14] * z + m[15] * 1;
+  const iw = (W !== 0) ? (1 / W) : 1;
+  return { x: X * iw, y: Y * iw, z: Z * iw };
+}
+
+// ---------- Export SVG (outlines) — baked 3D, WYSIWYG ----------
 function downloadSVGOutlines() {
   if (!fontState.font) {
     alert('Load a font first (drag a .otf/.ttf/.woff/.woff2 into the panel).');
@@ -249,49 +313,120 @@ function downloadSVGOutlines() {
   const unitsPerEm = font.unitsPerEm || 1000;
 
   const out = svgEl('svg');
-  out.setAttribute('xmlns','http://www.w3.org/2000/svg');
-  out.setAttribute('viewBox','-600 -600 1200 1200');
+  out.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  out.setAttribute('viewBox', '-600 -600 1200 1200');
 
   const group = svgEl('g');
   out.appendChild(group);
 
-  const words   = parseWords(el.words.value);
-  const n       = words.length || 1;
-  const fs      = parseInt(el.fontSize.value, 10);
-  const angle0  = parseInt(el.angle.value, 10);
-  const radius  = parseInt(el.radius.value, 10);
-  const startPx = parseInt(el.startPx.value, 10);
-  const lsPx    = parseFloat(el.letterSpacing.value);
+  // UI state (ALL parameters are honored)
+  const words = parseWords(el.words.value);
+  const n = words.length || 1;
+  const fs = parseInt(el.fontSize.value, 10);     // font size
+  const angle0 = parseInt(el.angle.value, 10);        // angle offset
+  const radius = parseInt(el.radius.value, 10);       // radius
+  const startPx = parseInt(el.startPx.value, 10);      // start offset
+  const lsPx = parseFloat(el.letterSpacing.value);  // letter spacing (px)
 
+  // Live preview rotations (deg)
+  const rotXdeg = parseInt(el.rotX.value, 10);
+  const rotYdeg = parseInt(el.rotY.value, 10);
+  const rotZdeg = parseInt(el.rotZ.value, 10);
+
+  // CSS: transform: perspective(p) rotateX(ax) rotateY(ay) rotateZ(az)
+  // Applied right-to-left -> M = P · Rx · Ry · Rz
+  const M = matMul(
+    matPerspective(PERSPECTIVE_PX),
+    matMul(
+      matRotateX(toRad(rotXdeg)),
+      matMul(
+        matRotateY(toRad(rotYdeg)),
+        matRotateZ(toRad(rotZdeg))
+      )
+    )
+  );
+
+  // From font units to pixels
   const scale = fs / unitsPerEm;
 
+  // IMPORTANT: the stage applies perspective AFTER the SVG is scaled to its rendered size.
+  // Compute that live scale (CSS px per viewBox unit) so projection matches exactly.
+  const vbWidth = (el.svg.viewBox && el.svg.viewBox.baseVal) ? el.svg.viewBox.baseVal.width : 1200;
+  const cssWidth = el.svg.getBoundingClientRect().width || 1200;
+  const displayScale = cssWidth / vbWidth; // px per viewBox unit
+
+  // Match on-screen clockwise sweep (your builder already does this)
+  const SWEEP = 1;
+
   for (let i = 0; i < n; i++) {
-    const aDeg = (360 / n) * i + angle0;
-    const a = rad(aDeg);
-    const cos = Math.cos(a), sin = Math.sin(a);
+    const aDeg = angle0 + SWEEP * (360 / n) * i;
+    const aRad = toRad(aDeg - 90);     // same spoke angle as screen path
+    const cosA = Math.cos(aRad), sinA = Math.sin(aRad);
     let d = radius + startPx;
 
     const word = words[i];
-    for (const ch of word) {
-      const glyph = font.charToGlyph(ch);
+
+    // --- shape into glyphs (handles ligatures & script rules) ---
+    // shape into glyphs for exact browser spacing (ligatures/kerning-ready)
+    // shape into glyphs for exact browser spacing (ligatures/kerning-ready)
+    const glyphs = font.stringToGlyphs(word);
+    let prevGlyph = null;
+
+    for (let gi = 0; gi < glyphs.length; gi++) {
+      const glyph = glyphs[gi];
+
+      // --- advance BEFORE placing the current glyph (pair kerning + letter-spacing) ---
+      if (prevGlyph) {
+        const kern = font.getKerningValue(prevGlyph, glyph) * scale; // px
+        d += kern + lsPx; // SVG letter-spacing is added only between pairs
+      }
+
+      // --- place current glyph at penX + LSB ---
+      const lsb = (glyph.leftSideBearing || 0) * scale;   // px along the baseline
       const p = glyph.getPath(0, 0, fs);
-      const dPath = p.toPathData(2);
 
-      const gx = cos * d;
-      const gy = sin * d;
+      function tx(x, y) {
+        // rotate to the spoke tangent using the SAME angle as the screen path (aDeg - 90)
+        const rx = x * Math.cos(aRad) + y * -Math.sin(aRad);
+        const ry = x * Math.sin(aRad) + y * Math.cos(aRad);
 
-      // Flip Y (font Y-up vs SVG Y-down), rotate to spoke
-      const g = svgEl('g');
-      g.setAttribute('transform', `translate(${gx} ${gy}) rotate(${aDeg}) scale(1,-1)`);
+        // translate along the spoke by (pen position + LSB)
+        let gx = rx + cosA * (d + lsb);
+        let gy = ry + sinA * (d + lsb);
+
+        // project in CSS pixel space, then return to viewBox units
+        gx *= displayScale; gy *= displayScale;
+        const P = applyMat(gx, gy, 0, M);
+        return { x: P.x / displayScale, y: P.y / displayScale };
+      }
+
+      // build path data
+      let dStr = '';
+      for (const cmd of p.commands) {
+        if (cmd.type === 'M') { const q = tx(cmd.x, cmd.y); dStr += `M ${q.x} ${q.y} `; }
+        else if (cmd.type === 'L') { const q = tx(cmd.x, cmd.y); dStr += `L ${q.x} ${q.y} `; }
+        else if (cmd.type === 'C') {
+          const q1 = tx(cmd.x1, cmd.y1), q2 = tx(cmd.x2, cmd.y2), q = tx(cmd.x, cmd.y);
+          dStr += `C ${q1.x} ${q1.y} ${q2.x} ${q2.y} ${q.x} ${q.y} `;
+        }
+        else if (cmd.type === 'Q') {
+          const q1 = tx(cmd.x1, cmd.y1), q = tx(cmd.x, cmd.y);
+          dStr += `Q ${q1.x} ${q1.y} ${q.x} ${q.y} `;
+        }
+        else if (cmd.type === 'Z') { dStr += 'Z '; }
+      }
+
       const path = svgEl('path');
-      path.setAttribute('d', dPath);
+      path.setAttribute('d', dStr.trim());
       path.setAttribute('fill', '#111');
-      g.appendChild(path);
-      group.appendChild(g);
+      group.appendChild(path);
 
-      const adv = glyph.advanceWidth * scale + lsPx;
-      d += adv;
+      // --- advance pen for the next glyph by the current glyph's advanceWidth ---
+      d += glyph.advanceWidth * scale;
+      prevGlyph = glyph;
     }
+
+
   }
 
   const xml = new XMLSerializer().serializeToString(out);
@@ -359,7 +494,7 @@ function resetView() {
 [
   el.words, el.fontSize, el.radius, el.angle, el.letterSpacing, el.startPx
 ].forEach(i => i.addEventListener('input', rebuild));
-[ el.rotX, el.rotY, el.rotZ ].forEach(i => i.addEventListener('input', updatePreviewRotation));
+[el.rotX, el.rotY, el.rotZ].forEach(i => i.addEventListener('input', updatePreviewRotation));
 
 el.downloadSvgBtn.addEventListener('click', downloadSVG);
 el.downloadSvgOutlinesBtn.addEventListener('click', downloadSVGOutlines);
